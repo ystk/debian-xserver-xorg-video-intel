@@ -1,55 +1,249 @@
-xserver-xorg-video-intel (2:2.13.0-6) stable; urgency=low
+xserver-xorg-video-intel (2:2.19.0-6) unstable; urgency=low
+
+  * Stop installing i915-kms.conf.  It's not necessary with the wheezy kernel.
+    Keep it around on upgrade, though, to allow booting on the squeeze kernel.
+
+ -- Julien Cristau <jcristau@debian.org>  Sun, 16 Sep 2012 20:46:52 +0200
+
+xserver-xorg-video-intel (2:2.19.0-5) unstable; urgency=high
+
+  * Reduce maximum thread count for IVB GT1 to avoid spontaneous combustion
+
+ -- Julien Cristau <jcristau@debian.org>  Fri, 27 Jul 2012 10:54:27 +0200
+
+xserver-xorg-video-intel (2:2.19.0-4) unstable; urgency=medium
+
+  [ Julien Cristau ]
+  * uxa: Check for DPMS off before scheduling a WAIT_ON_EVENT.  Fixes
+    regression from a cherry-pick in 2:2.19.0-2 (Closes: #677466).
+    Thanks to Julian Andres Klode for tracking this down.
+
+ -- Cyril Brulebois <kibi@debian.org>  Sat, 23 Jun 2012 21:06:26 +0200
+
+xserver-xorg-video-intel (2:2.19.0-3) unstable; urgency=low
+
+  * Add patch to avoid X segfaults with Driver-less Device sections in
+    xorg.conf (Closes: #677206):
+    - 0003-Avoid-calling-xf86nameCompare-with-a-NULL-pointer.patch
+
+ -- Cyril Brulebois <kibi@debian.org>  Tue, 12 Jun 2012 20:30:51 +0200
+
+xserver-xorg-video-intel (2:2.19.0-2) unstable; urgency=low
+
+  * Cherry-pick the following commits to make it possible to build both
+    uxa (legacy acceleration method) and sna (experimental acceleration
+    method):
+    - 3f3bde4f0c uxa: Only consider an output valid if the kernel reports it attached
+    - df6ab02c36 Unify options handling between UXA and SNA
+    - e456291350 Allow runtime switching of AccelMethod between uxa/sna and even glamor
+    - 318982566b sna/dri: Disable experimental code by default
+    - 7614a54188 configure: Harden --with-default-accel against simple mistakes
+    - 4e984b79cc configure: Correct the help string for --with-default-accel
+  * rules: Enable sna and uxa accel methods, default to uxa. The switch
+    to sna can be achieved through a minimal xorg.conf (look for “AccelMethod”
+    in: man intel).
+  * Add patch to document the new AccelMethod option accordingly:
+    - 0002-Update-manpage-for-new-accelmethod-option.patch
+
+ -- Cyril Brulebois <kibi@debian.org>  Mon, 11 Jun 2012 22:22:00 +0000
+
+xserver-xorg-video-intel (2:2.19.0-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Julien Cristau <jcristau@debian.org>  Sat, 26 May 2012 12:38:07 +0200
+
+xserver-xorg-video-intel (2:2.18.0-2) unstable; urgency=low
+
+  * Cherry-pick a change from upstream to fix a bug triggered by cairo 1.12:
+    uxa: Remove broken render glyphs-to-dst
+
+ -- Julien Cristau <jcristau@debian.org>  Thu, 05 Apr 2012 20:24:22 +0200
+
+xserver-xorg-video-intel (2:2.18.0-1) unstable; urgency=low
+
+  * New upstream release.
+  * No SNA for unstable, it's too fast of a moving target for now.
+  * Since we're building for unstable, let's go back to the previous
+    xorg-server build-dep.
+
+ -- Cyril Brulebois <kibi@debian.org>  Fri, 24 Feb 2012 14:16:47 +0100
+
+xserver-xorg-video-intel (2:2.17.0+git20120204-1) experimental; urgency=low
+
+  * New upstream snapshot:
+    - Merge from upstream master up to 24ece4a87e.
+
+ -- Cyril Brulebois <kibi@debian.org>  Sat, 04 Feb 2012 09:20:13 +0100
+
+xserver-xorg-video-intel (2:2.17.0+git20120115-1) experimental; urgency=low
+
+  * New upstream snapshot:
+    - Merge from upstream master up to 5df7147b09.
+
+ -- Cyril Brulebois <kibi@debian.org>  Mon, 16 Jan 2012 00:52:23 +0100
+
+xserver-xorg-video-intel (2:2.17.0+git20120104-1) experimental; urgency=low
+
+  * New upstream snapshot:
+    - Merge from upstream master up to 4119e68fb1.
+  * Implement a generate-snapshot rule to ease packaging snapshots.
+
+ -- Cyril Brulebois <kibi@debian.org>  Wed, 04 Jan 2012 22:19:19 +0100
+
+xserver-xorg-video-intel (2:2.17.0+git20120101-2) experimental; urgency=low
+
+  * Build against Xserver 1.12 RC1 (Closes: #653914).
+
+ -- Cyril Brulebois <kibi@debian.org>  Sun, 01 Jan 2012 14:58:27 +0100
+
+xserver-xorg-video-intel (2:2.17.0+git20120101-1) experimental; urgency=low
+
+  * New upstream snapshot:
+    - Merge from upstream master up to 770a953ff0.
+  * Enable SNA support, as suggested by upstream. It should be usable now
+    and regression reports are welcome.
+  * Add patch to support passing a builder string:
+    - 0001-Fix-build-failure-when-passing-with-builderstring.patch
+  * Pass a builder string, as done in the server.
+
+ -- Cyril Brulebois <kibi@debian.org>  Sun, 01 Jan 2012 06:34:09 +0100
+
+xserver-xorg-video-intel (2:2.17.0-1) unstable; urgency=low
+
+  [ Timo Aaltonen ]
+  * New upstream release. (Closes: #635953)
+
+ -- Cyril Brulebois <kibi@debian.org>  Sat, 19 Nov 2011 12:46:57 +0100
+
+xserver-xorg-video-intel (2:2.16.0-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Cyril Brulebois <kibi@debian.org>  Sun, 28 Aug 2011 13:15:24 +0200
+
+xserver-xorg-video-intel (2:2.15.901-1) experimental; urgency=low
+
+  * Re-enable XvMC.
+  * New upstream snapshot.
+  * Build against xserver 1.10.99.x.
+
+ -- Julien Cristau <jcristau@debian.org>  Mon, 01 Aug 2011 01:37:49 +0200
+
+xserver-xorg-video-intel (2:2.15.0-3) unstable; urgency=high
+
+  * Temporarily disable xvmc to sidestep the xcb-util mess and move to
+    testing.
+
+ -- Julien Cristau <jcristau@debian.org>  Sat, 14 May 2011 19:00:38 +0200
+
+xserver-xorg-video-intel (2:2.15.0-2) unstable; urgency=low
+
+  * xcb-util was split up in 0.3.8 and libxcb-aux has been merged
+    into libxcb-util, thus update Build-Depends accordingly.
+  * Add ${misc:Depends} to xserver-xorg-video-intel-dbg Depends.
+
+ -- Arnaud Fontaine <arnau@debian.org>  Fri, 06 May 2011 23:53:39 +0900
+
+xserver-xorg-video-intel (2:2.15.0-1) unstable; urgency=low
+
+  * New upstream release.
+  * Merge from upstream master up to c9fb69cb25 to fix crashes with i965
+    and kwin in particular, thanks to Julian Andres Klode and Modestas
+    Vainius for their reports in Debian and upstream (Closes: #622653):
+    - NEWS: typo.
+    - intel: Beware the unsigned promotion when checking for batch overflows
+    - i965/video: We need 150 dwords of space for video state emission
+
+ -- Cyril Brulebois <kibi@debian.org>  Tue, 19 Apr 2011 03:37:23 +0200
+
+xserver-xorg-video-intel (2:2.14.902-1) unstable; urgency=low
+
+  * New upstream snapshot (2.15 rc2).
+  * Apparently, using libXvMC means adding the name of the library (like
+    libI810XvMC.so.1 or libIntelXvMC.so.1) to the libXvMC configuration
+    file (/etc/X11/XvMCConfig). Accordingly, remove extraneous symlinks:
+    - /usr/lib/libI810XvMC.so
+    - /usr/lib/libIntelXvMC.so
+  * Override lintian warning about the libXvMC shared objects.
+
+ -- Cyril Brulebois <kibi@debian.org>  Sun, 10 Apr 2011 23:30:19 +0200
+
+xserver-xorg-video-intel (2:2.14.0-4) unstable; urgency=low
 
   * Cherry-pick from upstream:
     - uxa: Fallback if the temporary is too large
   * This fixes a null pointer dereference with some rendering operations
     involving large pictures (Closes: #613830). Thanks, Enrico!
-  * Cherry-pick from upstream, thanks to Bjørn Mork:
-    - Don't replace the scanout bo through PutImage
-    - dri: Fix the use of the uninitialised bo for flink
-  * These should fix issues with SDL (Closes: #602207).
 
- -- Cyril Brulebois <kibi@debian.org>  Fri, 18 Feb 2011 14:03:12 +0100
+ -- Cyril Brulebois <kibi@debian.org>  Fri, 18 Feb 2011 12:44:23 +0100
 
-xserver-xorg-video-intel (2:2.13.0-5) unstable; urgency=low
+xserver-xorg-video-intel (2:2.14.0-3) unstable; urgency=low
 
-  [ Julien Cristau ]
-  * Drop the intel_pci_probe patch from -4 (closes: #606288).  This relied on
-    i915.ko getting loaded automatically, which doesn't happen if:
-    - the kernel is built without CONFIG_DRM_I915_KMS and lacks modaliases, or
-    - the user kept obsolete /etc/modprobe.d blacklists around.
-  * Use the patch from upstream instead, which tries to load the kernel driver
-    before testing for kms.
+  * Switch to dh:
+    - Use debhelper 8.
+    - Use dh-autoreconf.
+    - Bump xserver-xorg-dev build-dep for dh_xsf_substvars and xsf
+      debhelper sequence.
+    - Specify usr/share/man in .install, remove .manpages accordingly.
+    - Specify NEWS and README in .docs file.
+  * Get rid of maintainer scripts, since they were only used to handle
+    switching between versions with or without KMS. Starting with squeeze,
+    KMS is mandatory, so stop worrying about that.
+  * Remove xsfbs accordingly.
+  * Remove leftovers:
+    - NEWS file is outdated, UMS is no longer available, and that's
+      covered by README.Debian
+    - The .install.hurd-i386 file is no longer relevant, this package is
+      now Linux-only.
+  * Update Uploaders list. Thanks, David & Brice!
+  * Remove long obsolete Replaces.
+  * Wrap Depends/Provides/Recommends.
+  * Bump Standards-Version to 3.9.1 (no changes needed).
+
+ -- Cyril Brulebois <kibi@debian.org>  Sat, 05 Feb 2011 14:47:04 +0100
+
+xserver-xorg-video-intel (2:2.14.0-2) experimental; urgency=low
+
+  * Cherry-pick from upstream to fix many rendering issues
+    (https://bugs.freedesktop.org/show_bug.cgi?id=33650):
+    - uxa: Undo damage translation before appending
+
+ -- Cyril Brulebois <kibi@debian.org>  Fri, 04 Feb 2011 15:37:47 +0100
+
+xserver-xorg-video-intel (2:2.14.0-1) experimental; urgency=low
+
+  * New upstream release.
+
+ -- Cyril Brulebois <kibi@debian.org>  Sat, 08 Jan 2011 18:10:23 +0100
+
+xserver-xorg-video-intel (2:2.13.903-1) experimental; urgency=low
+
+  [ Robert Hooker ]
+  * Add libudev-dev to the build deps for monitor hotplug detection
+    events.
 
   [ Cyril Brulebois ]
-  * The “♫ we wish you a working driver ♫” release.
-  * Build, test, and upload to unstable.
+  * New upstream release candidate.
+  * Bump libdrm-dev build-dep.
+  * Drop libdrm-from-sid-is-ok.diff accordingly.
 
- -- Cyril Brulebois <kibi@debian.org>  Fri, 24 Dec 2010 19:55:18 +0100
+ -- Cyril Brulebois <kibi@debian.org>  Tue, 04 Jan 2011 15:43:17 +0100
 
-xserver-xorg-video-intel (2:2.13.0-4) unstable; urgency=low
+xserver-xorg-video-intel (2:2.13.901-2) experimental; urgency=low
 
-  [ Julien Cristau ]
-  * Fail intel_pci_probe if we don't have a kernel mode setting driver.  This
-    allows the X server to fall back to the vesa driver instead.
+  * Build against Xserver 1.9.1 rc1.
 
-  [ Cyril Brulebois ]
-  * Build, test, and upload to unstable.
+ -- Cyril Brulebois <kibi@debian.org>  Tue, 09 Nov 2010 15:53:43 +0100
 
- -- Cyril Brulebois <kibi@debian.org>  Tue, 07 Dec 2010 15:23:32 +0100
+xserver-xorg-video-intel (2:2.13.901-1) experimental; urgency=low
 
-xserver-xorg-video-intel (2:2.13.0-3) unstable; urgency=low
+  * New upstream release candidate.
+  * Bump build-dep on libdrm-dev: 2.4.22-2 contains some cherry-picked
+    changes to allow this release candidate to build and run.
+  * Drop patch: i8xx-shadow.diff
 
-  [ Julien Cristau ]
-  * Revert "display: outputs are enabled automatically by KMS".
-    Closes: #600405.
-
-  [ Cyril Brulebois ]
-  * Cherry-pick from upstream:
-    + a44a63d2: "Wait for any pending rendering before switching modes."
-      Hopefully we should get rid of a number of GPU hangs.
-
- -- Cyril Brulebois <kibi@debian.org>  Mon, 06 Dec 2010 04:05:07 +0100
+ -- Cyril Brulebois <kibi@debian.org>  Tue, 09 Nov 2010 14:54:21 +0100
 
 xserver-xorg-video-intel (2:2.13.0-2) unstable; urgency=low
 
