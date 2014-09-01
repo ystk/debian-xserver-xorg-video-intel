@@ -1,3 +1,111 @@
+xserver-xorg-video-intel (2:2.21.15-2) unstable; urgency=medium
+
+  [ Michael Stapelberg ]
+  * Revert back to 1.0 source format.
+
+  [ Julien Cristau ]
+  * Cherry-pick upstream build fix for xserver 1.15 (closes: #736980).
+
+ -- Julien Cristau <jcristau@debian.org>  Tue, 04 Feb 2014 15:24:32 +0100
+
+xserver-xorg-video-intel (2:2.21.15-1) unstable; urgency=low
+
+  * New upstream release.
+  * Drop patches Check-for-struct-sysinfo-as-well-as-sys-sysinfo.h.patch and
+    Link-the-driver-against-pixman.patch, they were applied upstream.
+  * Add myself to Uploaders to prevent lintian NMU warnings
+  * Bump Standards-Version to 3.9.4 (no changes necessary)
+  * Canonicalize Vcs-* fields
+  * Explicitly set source format to '3.0 (quilt)'
+  * Move homepage from description to homepage: field
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Wed, 28 Aug 2013 19:39:47 +0200
+
+xserver-xorg-video-intel (2:2.21.14-4) unstable; urgency=low
+
+  * Link the driver against pixman to get correct dependency (closes: #719518).
+    Thanks to Martin Perazzo for the report!
+
+ -- Julien Cristau <jcristau@debian.org>  Mon, 12 Aug 2013 19:48:43 +0200
+
+xserver-xorg-video-intel (2:2.21.14-3) unstable; urgency=low
+
+  * Add patch to deal with missing 'struct sysinfo' in kfreebsd's
+    <sys/sysinfo.h>.
+
+ -- Julien Cristau <jcristau@debian.org>  Mon, 12 Aug 2013 15:31:14 +0200
+
+xserver-xorg-video-intel (2:2.21.14-2) unstable; urgency=low
+
+  * Don't enable valgrind on kfreebsd.
+
+ -- Julien Cristau <jcristau@debian.org>  Mon, 12 Aug 2013 10:09:25 +0200
+
+xserver-xorg-video-intel (2:2.21.14-1) unstable; urgency=low
+
+  * New upstream release (closes: #697336).
+
+  [ Maarten Lankhorst ]
+  * Add valgrind to build-depends.
+  * Enable valgrind by default.
+
+  [ Sven Joachim ]
+  * Drop patch 0002-Update-manpage-for-new-accelmethod-option.patch,
+    superseded by upstream changes.
+  * Use dpkg-buildflags.
+  * Disable silent build rules.
+
+  [ Julien Cristau ]
+  * Add kfreebsd to the package's architecture list (closes: #671870).
+
+ -- Julien Cristau <jcristau@debian.org>  Mon, 12 Aug 2013 08:12:23 +0200
+
+xserver-xorg-video-intel (2:2.20.14-1) experimental; urgency=low
+
+  [ Timo Aaltonen ]
+  * New upstream bugfix release.
+    - Fixes a long-standing bug in UXA pageflip code that was the
+      source of many GPU hangs.
+
+ -- Julien Cristau <jcristau@debian.org>  Sun, 02 Dec 2012 19:18:05 +0100
+
+xserver-xorg-video-intel (2:2.20.5-1) experimental; urgency=low
+
+  * New upstream release.
+    - Remove patch to support passing a builder string, merged upstream
+      0001-Fix-build-failure-when-passing-with-builderstring.patch
+
+ -- Julien Danjou <acid@debian.org>  Sun, 26 Aug 2012 14:25:55 +0200
+
+xserver-xorg-video-intel (2:2.20.2-1) experimental; urgency=low
+
+  [ Maarten Lankhorst ]
+  * New upstream release:
+    - First official release with sna
+  * Update to 2.20.1 point release:
+    - A bug affecting gen4 handling of trapezoids was fixed, and CPU
+      overhead reduced.
+      https://bugs.freedesktop.org/show_bug.cgi?id=52158
+    - A fix for a bug causing corruption of a DRI2 unredirected client
+      window that was resized whilst under a compositor.
+    - Support for snoopable buffers on non-LLC architectures, coming to
+      a future kernel. The aim to accelerate transfers between the CPU
+      and the GPU, in particular to dramatically improve readback
+      performance, and to further minimise clflushes.
+    - Improvement to the composite performance on GT2 SandyBridge and
+      IvyBridge devices, in particular the render copy is significantly
+      improved.
+    - Improved handling for when acceleration is disabled, including
+      permitting DRI2 to remain supported even if the X server believes
+      the GPU wedged.
+    - Shadow support was dropped from UXA as it was neither complete nor
+      correct, use SNA instead.
+
+  [ Julien Danjou ]
+  * New upstream release (2.20.2)
+
+ -- Julien Danjou <acid@debian.org>  Sun, 29 Jul 2012 00:06:11 +0200
+
 xserver-xorg-video-intel (2:2.19.0-6) unstable; urgency=low
 
   * Stop installing i915-kms.conf.  It's not necessary with the wheezy kernel.
@@ -59,6 +167,12 @@ xserver-xorg-video-intel (2:2.18.0-2) unstable; urgency=low
     uxa: Remove broken render glyphs-to-dst
 
  -- Julien Cristau <jcristau@debian.org>  Thu, 05 Apr 2012 20:24:22 +0200
+
+xserver-xorg-video-intel (2:2.18.0-1+exp1) experimental; urgency=low
+
+  * Enable SNA again, in experimental.
+
+ -- Cyril Brulebois <kibi@debian.org>  Fri, 24 Feb 2012 14:19:00 +0100
 
 xserver-xorg-video-intel (2:2.18.0-1) unstable; urgency=low
 

@@ -4,9 +4,27 @@ SOURCE_NAME    := $(shell dpkg-parsechangelog | awk -F': ' '/^Source: / {print $
 SOURCE_VERSION := $(shell dpkg-parsechangelog | awk -F': ' '/^Version: / {print $$2}')
 BUILDER        := $(shell dpkg-parsechangelog | awk -F': ' '/^Maintainer: / {print $$2}')
 
+export CPPFLAGS := $(shell dpkg-buildflags --get CPPFLAGS)
+export CFLAGS := $(shell dpkg-buildflags --get CFLAGS)
+export LDFLAGS := $(shell dpkg-buildflags --get LDFLAGS)
+
+DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+
+ifeq ($(DEB_HOST_ARCH), linux)
+valgrind = --enable-valgrind
+else
+valgrind = --disable-valgrind
+endif
+
 # Enable SNA, pass builderstring:
 override_dh_auto_configure:
-	dh_auto_configure -- --enable-sna --enable-uxa --with-default-accel=uxa --with-builderstring="$(SOURCE_NAME) $(SOURCE_VERSION) ($(BUILDER))"
+	dh_auto_configure -- \
+	    --enable-sna \
+	    --enable-uxa \
+	    --with-default-accel=uxa \
+	    --with-builderstring="$(SOURCE_NAME) $(SOURCE_VERSION) ($(BUILDER))" \
+	    --disable-silent-rules \
+	    $(valgrind)
 
 # Install in debian/tmp to retain control through dh_install:
 override_dh_auto_install:
@@ -26,6 +44,9 @@ override_dh_strip:
 # That's a plugin, use appropriate warning level:
 override_dh_shlibdeps:
 	dh_shlibdeps -- --warnings=6
+
+override_dh_installchangelogs:
+	dh_installchangelogs debian/upstream.changelog
 
 %:
 	dh $@ --with quilt,autoreconf,xsf --builddirectory=build/
