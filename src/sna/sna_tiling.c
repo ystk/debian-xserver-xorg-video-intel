@@ -31,13 +31,12 @@
 
 #include "sna.h"
 #include "sna_render.h"
+#include "fb/fbpict.h"
 
-#include <fbpict.h>
-
-#if DEBUG_RENDER
-#undef DBG
-#define DBG(x) ErrorF x
-#endif
+struct sna_tile_span {
+	BoxRec box;
+	float opacity;
+};
 
 struct sna_tile_state {
 	int op;
@@ -48,6 +47,7 @@ struct sna_tile_state {
 	int16_t mask_x, mask_y;
 	int16_t dst_x, dst_y;
 	int16_t width, height;
+	unsigned flags;
 
 	int rect_count;
 	int rect_size;
@@ -188,6 +188,14 @@ sna_tiling_composite_done(struct sna *sna,
 					if (y2 > y + height)
 						y2 = y + height;
 
+					DBG(("%s: rect[%d] = (%d, %d)x(%d,%d), tile=(%d,%d)x(%d, %d), blt=(%d,%d),(%d,%d), delta=(%d,%d)\n",
+					     __FUNCTION__, n,
+					     r->dst.x, r->dst.y,
+					     r->width, r->height,
+					     x, y, width, height,
+					     x1, y1, x2, y2,
+					     dx, dy));
+
 					if (y2 > y1 && x2 > x1) {
 						struct sna_composite_rectangles rr;
 						rr.src.x = dx + r->src.x;
@@ -257,13 +265,7 @@ done:
 	free(tile);
 }
 
-static inline int split(int x, int y)
-{
-	int n = x / y + 1;
-	return (x + n - 1) / n;
-}
-
-Bool
+bool
 sna_tiling_composite(uint32_t op,
 		     PicturePtr src,
 		     PicturePtr mask,
@@ -283,11 +285,11 @@ sna_tiling_composite(uint32_t op,
 
 	priv = sna_pixmap(get_drawable_pixmap(dst->pDrawable));
 	if (priv == NULL || priv->gpu_bo == NULL)
-		return FALSE;
+		return false;
 
 	tile = malloc(sizeof(*tile));
 	if (!tile)
-		return FALSE;
+		return false;
 
 	tile->op = op;
 
@@ -313,10 +315,266 @@ sna_tiling_composite(uint32_t op,
 	tmp->done  = sna_tiling_composite_done;
 
 	tmp->priv = tile;
-	return TRUE;
+	return true;
 }
 
-Bool
+fastcall static void
+sna_tiling_composite_spans_box(struct sna *sna,
+			       const struct sna_composite_spans_op *op,
+			       const BoxRec *box, float opacity)
+{
+	struct sna_tile_state *tile = op->base.priv;
+	struct sna_tile_span *a;
+
+	if (tile->rect_count == tile->rect_size) {
+		int newsize = tile->rect_size * 2;
+
+		if (tile->rects == tile->rects_embedded) {
+			a = malloc (sizeof(struct sna_tile_span) * newsize);
+			if (a == NULL)
+				return;
+
+			memcpy(a,
+			       tile->rects_embedded,
+			       sizeof(struct sna_tile_span) * tile->rect_count);
+		} else {
+			a = realloc(tile->rects,
+				    sizeof(struct sna_tile_span) * newsize);
+			if (a == NULL)
+				return;
+		}
+
+		tile->rects = (void *)a;
+		tile->rect_size = newsize;
+	} else
+		a = (void *)tile->rects;
+
+	a[tile->rect_count].box = *box;
+	a[tile->rect_count].opacity = opacity;
+	tile->rect_count++;
+	(void)sna;
+}
+
+static void
+sna_tiling_composite_spans_boxes(struct sna *sna,
+				 const struct sna_composite_spans_op *op,
+				 const BoxRec *box, int nbox, float opacity)
+{
+	while (nbox--)
+		sna_tiling_composite_spans_box(sna, op->base.priv, box++, opacity);
+	(void)sna;
+}
+
+fastcall static void
+sna_tiling_composite_spans_done(struct sna *sna,
+				const struct sna_composite_spans_op *op)
+{
+	struct sna_tile_state *tile = op->base.priv;
+	struct sna_composite_spans_op tmp;
+	int x, y, n, step;
+	bool force_fallback = false;
+
+	/* Use a small step to accommodate enlargement through tile alignment */
+	step = sna->render.max_3d_size;
+	if (tile->dst_x & (8*512 / tile->dst->pDrawable->bitsPerPixel - 1) ||
+	    tile->dst_y & 63)
+		step /= 2;
+	while (step * step * 4 > sna->kgem.max_copy_tile_size)
+		step /= 2;
+
+	DBG(("%s -- %dx%d, count=%d, step size=%d\n", __FUNCTION__,
+	     tile->width, tile->height, tile->rect_count, step));
+
+	if (tile->rect_count == 0)
+		goto done;
+
+	for (y = 0; y < tile->height; y += step) {
+		int height = step;
+		if (y + height > tile->height)
+			height = tile->height - y;
+		for (x = 0; x < tile->width; x += step) {
+			const struct sna_tile_span *r = (void *)tile->rects;
+			int width = step;
+			if (x + width > tile->width)
+				width = tile->width - x;
+			if (!force_fallback &&
+			    sna->render.composite_spans(sna, tile->op,
+							tile->src, tile->dst,
+							tile->src_x + x,  tile->src_y + y,
+							tile->dst_x + x,  tile->dst_y + y,
+							width, height, tile->flags,
+							memset(&tmp, 0, sizeof(tmp)))) {
+				for (n = 0; n < tile->rect_count; n++) {
+					BoxRec b;
+
+					b.x1 = r->box.x1 - tile->dst_x;
+					if (b.x1 < x)
+						b.x1 = x;
+
+					b.y1 = r->box.y1 - tile->dst_y;
+					if (b.y1 < y)
+						b.y1 = y;
+
+					b.x2 = r->box.x2 - tile->dst_x;
+					if (b.x2 > x + width)
+						b.x2 = x + width;
+
+					b.y2 = r->box.y2 - tile->dst_y;
+					if (b.y2 > y + height)
+						b.y2 = y + height;
+
+					DBG(("%s: rect[%d] = (%d, %d)x(%d,%d), tile=(%d,%d)x(%d, %d), blt=(%d,%d),(%d,%d)\n",
+					     __FUNCTION__, n,
+					     r->box.x1, r->box.y1,
+					     r->box.x2-r->box.x1, r->box.y2-r->box.y1,
+					     x, y, width, height,
+					     b.x1, b.y1, b.x2, b.y2));
+
+					if (b.y2 > b.y1 && b.x2 > b.x1)
+						tmp.box(sna, &tmp, &b, r->opacity);
+					r++;
+				}
+				tmp.done(sna, &tmp);
+			} else {
+				unsigned int flags;
+
+				DBG(("%s -- falback\n", __FUNCTION__));
+
+				if (tile->op <= PictOpSrc)
+					flags = MOVE_WRITE;
+				else
+					flags = MOVE_WRITE | MOVE_READ;
+				if (!sna_drawable_move_to_cpu(tile->dst->pDrawable,
+							      flags))
+					goto done;
+				if (tile->dst->alphaMap &&
+				    !sna_drawable_move_to_cpu(tile->dst->alphaMap->pDrawable,
+							      flags))
+					goto done;
+
+				if (tile->src->pDrawable &&
+				    !sna_drawable_move_to_cpu(tile->src->pDrawable,
+							      MOVE_READ))
+					goto done;
+				if (tile->src->alphaMap &&
+				    !sna_drawable_move_to_cpu(tile->src->alphaMap->pDrawable,
+							      MOVE_READ))
+					goto done;
+
+				for (n = 0; n < tile->rect_count; n++) {
+					BoxRec b;
+
+					b.x1 = r->box.x1 - tile->dst_x;
+					if (b.x1 < x)
+						b.x1 = x;
+
+					b.y1 = r->box.y1 - tile->dst_y;
+					if (b.y1 < y)
+						b.y1 = y;
+
+					b.x2 = r->box.x2 - tile->dst_x;
+					if (b.x2 > x + width)
+						b.x2 = x + width;
+
+					b.y2 = r->box.y2 - tile->dst_y;
+					if (b.y2 > y + height)
+						b.y2 = y + height;
+
+					DBG(("%s: rect[%d] = (%d, %d)x(%d,%d), tile=(%d,%d)x(%d, %d), blt=(%d,%d),(%d,%d)\n",
+					     __FUNCTION__, n,
+					     r->box.x1, r->box.y1,
+					     r->box.x2-r->box.x1, r->box.y2-r->box.y1,
+					     x, y, width, height,
+					     b.x1, b.y1, b.x2, b.y2));
+
+					if (b.y2 > b.y1 && b.x2 > b.x1) {
+						xRenderColor alpha;
+						PicturePtr mask;
+						int error;
+
+						alpha.red = alpha.green = alpha.blue = 0;
+						alpha.alpha = r->opacity * 0xffff;
+
+						mask = CreateSolidPicture(0, &alpha, &error);
+						if (!mask)
+							goto done;
+
+						fbComposite(tile->op,
+							    tile->src, mask, tile->dst,
+							    tile->src_x + x,  tile->src_y + y,
+							    0, 0,
+							    tile->dst_x + x,  tile->dst_y + y,
+							    width, height);
+
+						FreePicture(mask, 0);
+					}
+					r++;
+				}
+
+				force_fallback = true;
+			}
+		}
+	}
+
+done:
+	if (tile->rects != tile->rects_embedded)
+		free(tile->rects);
+	free(tile);
+}
+
+bool
+sna_tiling_composite_spans(uint32_t op,
+			   PicturePtr src,
+			   PicturePtr dst,
+			   int16_t src_x,  int16_t src_y,
+			   int16_t dst_x,  int16_t dst_y,
+			   int16_t width,  int16_t height,
+			   unsigned flags,
+			   struct sna_composite_spans_op *tmp)
+{
+	struct sna_tile_state *tile;
+	struct sna_pixmap *priv;
+
+	DBG(("%s size=(%d, %d), tile=%d\n",
+	     __FUNCTION__, width, height,
+	     to_sna_from_drawable(dst->pDrawable)->render.max_3d_size));
+
+	priv = sna_pixmap(get_drawable_pixmap(dst->pDrawable));
+	if (priv == NULL || priv->gpu_bo == NULL)
+		return false;
+
+	tile = malloc(sizeof(*tile));
+	if (!tile)
+		return false;
+
+	tile->op = op;
+	tile->flags = flags;
+
+	tile->src  = src;
+	tile->mask = NULL;
+	tile->dst  = dst;
+
+	tile->src_x = src_x;
+	tile->src_y = src_y;
+	tile->mask_x = 0;
+	tile->mask_y = 0;
+	tile->dst_x = dst_x;
+	tile->dst_y = dst_y;
+	tile->width = width;
+	tile->height = height;
+	tile->rects = tile->rects_embedded;
+	tile->rect_count = 0;
+	tile->rect_size = ARRAY_SIZE(tile->rects_embedded);
+
+	tmp->box   = sna_tiling_composite_spans_box;
+	tmp->boxes = sna_tiling_composite_spans_boxes;
+	tmp->done  = sna_tiling_composite_spans_done;
+
+	tmp->base.priv = tile;
+	return true;
+}
+
+bool
 sna_tiling_fill_boxes(struct sna *sna,
 		      CARD8 op,
 		      PictFormat format,
@@ -327,7 +585,7 @@ sna_tiling_fill_boxes(struct sna *sna,
 	RegionRec region, tile, this;
 	struct kgem_bo *bo;
 	int step;
-	Bool ret = FALSE;
+	bool ret = false;
 
 	pixman_region_init_rects(&region, box, n);
 
@@ -349,24 +607,25 @@ sna_tiling_fill_boxes(struct sna *sna,
 	for (tile.extents.y1 = tile.extents.y2 = region.extents.y1;
 	     tile.extents.y2 < region.extents.y2;
 	     tile.extents.y1 = tile.extents.y2) {
-		tile.extents.y2 = tile.extents.y1 + step;
-		if (tile.extents.y2 > region.extents.y2)
-			tile.extents.y2 = region.extents.y2;
+		int y2 = tile.extents.y1 + step;
+		if (y2 > region.extents.y2)
+			y2 = region.extents.y2;
+		tile.extents.y2 = y2;
 
 		for (tile.extents.x1 = tile.extents.x2 = region.extents.x1;
 		     tile.extents.x2 < region.extents.x2;
 		     tile.extents.x1 = tile.extents.x2) {
 			PixmapRec tmp;
-
-			tile.extents.x2 = tile.extents.x1 + step;
-			if (tile.extents.x2 > region.extents.x2)
-				tile.extents.x2 = region.extents.x2;
+			int x2 = tile.extents.x1 + step;
+			if (x2 > region.extents.x2)
+				x2 = region.extents.x2;
+			tile.extents.x2 = x2;
 
 			tile.data = NULL;
 
 			RegionNull(&this);
 			RegionIntersect(&this, &region, &tile);
-			if (!RegionNotEmpty(&this))
+			if (RegionNil(&this))
 				continue;
 
 			tmp.drawable.width  = this.extents.x2 - this.extents.x1;
@@ -384,18 +643,17 @@ sna_tiling_fill_boxes(struct sna *sna,
 							       tmp.drawable.width,
 							       tmp.drawable.height,
 							       dst->drawable.bitsPerPixel),
-					    CREATE_SCANOUT | CREATE_TEMPORARY);
+					    CREATE_TEMPORARY);
 			if (bo) {
 				int16_t dx = this.extents.x1;
 				int16_t dy = this.extents.y1;
 
 				assert(kgem_bo_can_blt(&sna->kgem, bo));
-				assert(bo->pitch <= 8192);
 
 				if (!sna->render.copy_boxes(sna, GXcopy,
 							     dst, dst_bo, 0, 0,
 							     &tmp, bo, -dx, -dy,
-							     REGION_RECTS(&this), REGION_NUM_RECTS(&this)))
+							     REGION_RECTS(&this), REGION_NUM_RECTS(&this), 0))
 					goto err;
 
 				RegionTranslate(&this, -dx, -dy);
@@ -407,7 +665,7 @@ sna_tiling_fill_boxes(struct sna *sna,
 				if (!sna->render.copy_boxes(sna, GXcopy,
 							     &tmp, bo, 0, 0,
 							     dst, dst_bo, dx, dy,
-							     REGION_RECTS(&this), REGION_NUM_RECTS(&this)))
+							     REGION_RECTS(&this), REGION_NUM_RECTS(&this), 0))
 					goto err;
 
 				kgem_bo_destroy(&sna->kgem, bo);
@@ -416,7 +674,7 @@ sna_tiling_fill_boxes(struct sna *sna,
 		}
 	}
 
-	ret = TRUE;
+	ret = true;
 	goto done;
 err:
 	kgem_bo_destroy(&sna->kgem, bo);
@@ -426,15 +684,15 @@ done:
 	return ret;
 }
 
-Bool sna_tiling_blt_copy_boxes(struct sna *sna, uint8_t alu,
+bool sna_tiling_blt_copy_boxes(struct sna *sna, uint8_t alu,
 			       struct kgem_bo *src_bo, int16_t src_dx, int16_t src_dy,
 			       struct kgem_bo *dst_bo, int16_t dst_dx, int16_t dst_dy,
 			       int bpp, const BoxRec *box, int nbox)
 {
 	RegionRec region, tile, this;
 	struct kgem_bo *bo;
-	int step;
-	Bool ret = FALSE;
+	int max_size, step;
+	bool ret = false;
 
 	if (!kgem_bo_can_blt(&sna->kgem, src_bo) ||
 	    !kgem_bo_can_blt(&sna->kgem, dst_bo)) {
@@ -443,8 +701,17 @@ Bool sna_tiling_blt_copy_boxes(struct sna *sna, uint8_t alu,
 		     __FUNCTION__,
 		     kgem_bo_can_blt(&sna->kgem, src_bo),
 		     kgem_bo_can_blt(&sna->kgem, dst_bo)));
-		return FALSE;
+		return false;
 	}
+
+	max_size = sna->kgem.aperture_high * PAGE_SIZE;
+	max_size -= MAX(kgem_bo_size(src_bo), kgem_bo_size(dst_bo));
+	if (max_size <= 0) {
+		DBG(("%s: tiles cannot fit into aperture\n", __FUNCTION__));
+		return false;
+	}
+	if (max_size > sna->kgem.max_copy_tile_size)
+		max_size = sna->kgem.max_copy_tile_size;
 
 	pixman_region_init_rects(&region, box, nbox);
 
@@ -452,8 +719,12 @@ Bool sna_tiling_blt_copy_boxes(struct sna *sna, uint8_t alu,
 	step = sna->render.max_3d_size;
 	if (region.extents.x1 & (8*512 / bpp - 1) || region.extents.y1 & 63)
 		step /= 2;
-	while (step * step * 4 > sna->kgem.max_copy_tile_size)
+	while (step * step * 4 > max_size)
 		step /= 2;
+	if (step == 0) {
+		DBG(("%s: tiles cannot fit into aperture\n", __FUNCTION__));
+		return false;
+	}
 
 	DBG(("%s (alu=%d), tile.size=%d, box=%dx[(%d, %d), (%d, %d)])\n",
 	     __FUNCTION__, alu, step, nbox,
@@ -463,24 +734,25 @@ Bool sna_tiling_blt_copy_boxes(struct sna *sna, uint8_t alu,
 	for (tile.extents.y1 = tile.extents.y2 = region.extents.y1;
 	     tile.extents.y2 < region.extents.y2;
 	     tile.extents.y1 = tile.extents.y2) {
-		tile.extents.y2 = tile.extents.y1 + step;
-		if (tile.extents.y2 > region.extents.y2)
-			tile.extents.y2 = region.extents.y2;
+		int y2 = tile.extents.y1 + step;
+		if (y2 > region.extents.y2)
+			y2 = region.extents.y2;
+		tile.extents.y2 = y2;
 
 		for (tile.extents.x1 = tile.extents.x2 = region.extents.x1;
 		     tile.extents.x2 < region.extents.x2;
 		     tile.extents.x1 = tile.extents.x2) {
 			int w, h;
-
-			tile.extents.x2 = tile.extents.x1 + step;
-			if (tile.extents.x2 > region.extents.x2)
-				tile.extents.x2 = region.extents.x2;
+			int x2 = tile.extents.x1 + step;
+			if (x2 > region.extents.x2)
+				x2 = region.extents.x2;
+			tile.extents.x2 = x2;
 
 			tile.data = NULL;
 
 			RegionNull(&this);
 			RegionIntersect(&this, &region, &tile);
-			if (!RegionNotEmpty(&this))
+			if (RegionNil(&this))
 				continue;
 
 			w = this.extents.x2 - this.extents.x1;
@@ -515,7 +787,7 @@ Bool sna_tiling_blt_copy_boxes(struct sna *sna, uint8_t alu,
 		}
 	}
 
-	ret = TRUE;
+	ret = true;
 	goto done;
 err:
 	kgem_bo_destroy(&sna->kgem, bo);
@@ -525,22 +797,7 @@ done:
 	return ret;
 }
 
-static Bool
-box_intersect(BoxPtr a, const BoxRec *b)
-{
-	if (a->x1 < b->x1)
-		a->x1 = b->x1;
-	if (a->x2 > b->x2)
-		a->x2 = b->x2;
-	if (a->y1 < b->y1)
-		a->y1 = b->y1;
-	if (a->y2 > b->y2)
-		a->y2 = b->y2;
-
-	return a->x1 < a->x2 && a->y1 < a->y2;
-}
-
-Bool
+bool
 sna_tiling_copy_boxes(struct sna *sna, uint8_t alu,
 		      PixmapPtr src, struct kgem_bo *src_bo, int16_t src_dx, int16_t src_dy,
 		      PixmapPtr dst, struct kgem_bo *dst_bo, int16_t dst_dx, int16_t dst_dy,
@@ -549,32 +806,40 @@ sna_tiling_copy_boxes(struct sna *sna, uint8_t alu,
 	BoxRec extents, tile, stack[64], *clipped, *c;
 	PixmapRec p;
 	int i, step, tiling;
-	Bool ret = FALSE;
+	bool create = true;
+	bool ret = false;
 
 	extents = box[0];
 	for (i = 1; i < n; i++) {
-		if (extents.x1 < box[i].x1)
+		if (box[i].x1 < extents.x1)
 			extents.x1 = box[i].x1;
-		if (extents.y1 < box[i].y1)
+		if (box[i].y1 < extents.y1)
 			extents.y1 = box[i].y1;
 
-		if (extents.x2 > box[i].x2)
+		if (box[i].x2 > extents.x2)
 			extents.x2 = box[i].x2;
-		if (extents.y2 > box[i].y2)
+		if (box[i].y2 > extents.y2)
 			extents.y2 = box[i].y2;
 	}
-
-	step = sna->render.max_3d_size - 4096 / dst->drawable.bitsPerPixel;
-	while (step * step * 4 > sna->kgem.max_upload_tile_size)
-		step /= 2;
 
 	tiling = I915_TILING_X;
 	if (!kgem_bo_can_blt(&sna->kgem, src_bo) ||
 	    !kgem_bo_can_blt(&sna->kgem, dst_bo))
 		tiling = I915_TILING_Y;
 
-	DBG(("%s: tiling copy, using %dx%d %c tiles\n",
-	     __FUNCTION__, step, step, tiling == I915_TILING_X ? 'X' : 'Y'));
+	create = (src_bo->pitch > sna->render.max_3d_pitch ||
+		  dst_bo->pitch > sna->render.max_3d_pitch);
+
+	step = sna->render.max_3d_size / 2;
+	if (create) {
+		while (step * step * 4 > sna->kgem.max_upload_tile_size)
+			step /= 2;
+	}
+
+	DBG(("%s: tiling copy %dx%d, %s %dx%d %c tiles\n", __FUNCTION__,
+	     extents.x2-extents.x1, extents.y2-extents.y1,
+	     create ? "creating" : "using",
+	     step, step, tiling == I915_TILING_X ? 'X' : 'Y'));
 
 	if (n > ARRAY_SIZE(stack)) {
 		clipped = malloc(sizeof(BoxRec) * n);
@@ -588,16 +853,17 @@ sna_tiling_copy_boxes(struct sna *sna, uint8_t alu,
 	p.devPrivate.ptr = NULL;
 
 	for (tile.y1 = extents.y1; tile.y1 < extents.y2; tile.y1 = tile.y2) {
-		tile.y2 = tile.y1 + step;
-		if (tile.y2 > extents.y2)
-			tile.y2 = extents.y2;
+		int y2 = tile.y1 + step;
+		if (y2 > extents.y2)
+			y2 = extents.y2;
+		tile.y2 = y2;
 
 		for (tile.x1 = extents.x1; tile.x1 < extents.x2; tile.x1 = tile.x2) {
 			struct kgem_bo *tmp_bo;
-
-			tile.x2 = tile.x1 + step;
-			if (tile.x2 > extents.x2)
-				tile.x2 = extents.x2;
+			int x2 = tile.x1 + step;
+			if (x2 > extents.x2)
+				x2 = extents.x2;
+			tile.x2 = x2;
 
 			c = clipped;
 			for (i = 0; i < n; i++) {
@@ -623,31 +889,38 @@ sna_tiling_copy_boxes(struct sna *sna, uint8_t alu,
 			DBG(("%s: tile (%d, %d), (%d, %d)\n",
 			     __FUNCTION__, tile.x1, tile.y1, tile.x2, tile.y2));
 
-			tmp_bo = kgem_create_2d(&sna->kgem,
-						p.drawable.width,
-						p.drawable.height,
-						p.drawable.bitsPerPixel,
-						tiling, CREATE_TEMPORARY);
-			if (!tmp_bo)
-				goto tiled_error;
+			if (create) {
+				tmp_bo = kgem_create_2d(&sna->kgem,
+							p.drawable.width,
+							p.drawable.height,
+							p.drawable.bitsPerPixel,
+							tiling, CREATE_TEMPORARY);
+				if (!tmp_bo)
+					goto tiled_error;
 
-			i = (sna->render.copy_boxes(sna, GXcopy,
-						    src, src_bo, src_dx, src_dy,
-						    &p, tmp_bo, -tile.x1, -tile.y1,
-						    clipped, c - clipped) &&
-			     sna->render.copy_boxes(sna, alu,
-						    &p, tmp_bo, -tile.x1, -tile.y1,
-						    dst, dst_bo, dst_dx, dst_dy,
-						    clipped, c - clipped));
+				i = (sna->render.copy_boxes(sna, GXcopy,
+							    src, src_bo, src_dx, src_dy,
+							    &p, tmp_bo, -tile.x1, -tile.y1,
+							    clipped, c - clipped, 0) &&
+				     sna->render.copy_boxes(sna, alu,
+							    &p, tmp_bo, -tile.x1, -tile.y1,
+							    dst, dst_bo, dst_dx, dst_dy,
+							    clipped, c - clipped, 0));
 
-			kgem_bo_destroy(&sna->kgem, tmp_bo);
+				kgem_bo_destroy(&sna->kgem, tmp_bo);
+			} else {
+				i = sna->render.copy_boxes(sna, GXcopy,
+							   src, src_bo, src_dx, src_dy,
+							   dst, dst_bo, dst_dx, dst_dy,
+							   clipped, c - clipped, 0);
+			}
 
 			if (!i)
 				goto tiled_error;
 		}
 	}
 
-	ret = TRUE;
+	ret = true;
 tiled_error:
 	if (clipped != stack)
 		free(clipped);

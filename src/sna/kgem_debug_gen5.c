@@ -73,7 +73,7 @@ static void gen5_update_vertex_buffer(struct kgem *kgem, const uint32_t *data)
 	int i, size;
 
 	reloc = kgem_debug_get_reloc_entry(kgem, &data[1] - kgem->batch);
-	if (reloc->target_handle == 0) {
+	if (reloc->target_handle == -1) {
 		base = kgem->batch;
 		size = kgem->nbatch * sizeof(uint32_t);
 	} else {
@@ -230,7 +230,7 @@ static void primitive_out(struct kgem *kgem, uint32_t *data)
 
 static void
 state_base_out(uint32_t *data, uint32_t offset, unsigned int index,
-	       char *name)
+	       const char *name)
 {
     if (data[index] & 1)
 	kgem_debug_print(data, offset, index,
@@ -244,7 +244,7 @@ state_base_out(uint32_t *data, uint32_t offset, unsigned int index,
 
 static void
 state_max_out(uint32_t *data, uint32_t offset, unsigned int index,
-	      char *name)
+	      const char *name)
 {
 	if (data[index] == 1)
 		kgem_debug_print(data, offset, index,
@@ -434,7 +434,7 @@ int kgem_gen5_decode_3d(struct kgem *kgem, uint32_t offset)
 	uint32_t op;
 	unsigned int len;
 	int i;
-	char *desc1 = NULL;
+	const char *desc1 = NULL;
 
 	len = (data[0] & 0xff) + 2;
 	op = (data[0] & 0xffff0000) >> 16;
@@ -529,20 +529,19 @@ int kgem_gen5_decode_3d(struct kgem *kgem, uint32_t offset)
 		for (i = 1; i < len;) {
 			gen5_update_vertex_elements(kgem, (i - 1)/2, data + i);
 
-			kgem_debug_print(data, offset, i, "buffer %d: %svalid, type 0x%04x, "
-				  "src offset 0x%04x bytes\n",
-				  data[i] >> 27,
-				  data[i] & (1 << 26) ? "" : "in",
-				  (data[i] >> 16) & 0x1ff,
-				  data[i] & 0x07ff);
+			kgem_debug_print(data, offset, i,
+					 "buffer %d: %svalid, type 0x%04x, "
+					 "src offset 0x%04x bytes\n",
+					 data[i] >> 27,
+					 data[i] & (1 << 26) ? "" : "in",
+					 (data[i] >> 16) & 0x1ff,
+					 data[i] & 0x07ff);
 			i++;
-			kgem_debug_print(data, offset, i, "(%s, %s, %s, %s), "
-				  "dst offset 0x%02x bytes\n",
+			kgem_debug_print(data, offset, i, "(%s, %s, %s, %s)\n",
 				  get_965_element_component(data[i], 0),
 				  get_965_element_component(data[i], 1),
 				  get_965_element_component(data[i], 2),
-				  get_965_element_component(data[i], 3),
-				  (data[i] & 0xff) * 4);
+				  get_965_element_component(data[i], 3));
 			i++;
 		}
 		state.num_ve = (len - 1) / 2; /* XXX? */
